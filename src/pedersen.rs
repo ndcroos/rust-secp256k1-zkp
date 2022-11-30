@@ -830,6 +830,102 @@ impl Secp256k1 {
 		}
 	}
 
+	/// Craeate bulletproof without blinding factor.
+	pub fn bullet_proof_blindless(
+		&self,
+		tau_x: Option<&mut SecretKey>,
+		t_one: Option<&mut PublicKey>,
+		t_two: Option<&mut PublicKey>,
+		value: u64,
+		rewind_nonce: SecretKey,
+		extra_data_in: Option<Vec<u8>>,
+		commits: Vec<Commitment>,
+		message: Option<ProofMessage>,
+	) -> RangeProof {
+		let mut proof = [0; constants::MAX_PROOF_SIZE];
+		let mut plen = constants::MAX_PROOF_SIZE as size_t;
+
+		let n_bits = 64;
+
+		let (extra_data_len, extra_data) = match extra_data_in.as_ref() {
+			Some(d) => (d.len(), d.as_ptr()),
+			None => (0, ptr::null()),
+		};
+
+		let mut message = message;
+		let message_ptr = match message.as_mut() {
+			Some(m) => {
+				while m.len() < constants::BULLET_PROOF_MSG_SIZE {
+					m.push(0u8);
+				}
+				m.truncate(constants::BULLET_PROOF_MSG_SIZE);
+				m.as_ptr()
+			},
+			None => ptr::null(),
+		};
+
+		let tau_x = match tau_x {
+			Some(n) => n.0.as_mut_ptr(),
+			None => ptr::null_mut(),
+		};
+
+		let t_one_ptr;
+		let t_two_ptr;
+		if first_step {
+			t_one_ptr = is_zero_pubkey!(ignore  => t_one);
+			t_two_ptr = is_zero_pubkey!(ignore  => t_two);
+		} else {
+			t_one_ptr = is_zero_pubkey!(retnone => t_one);
+			t_two_ptr = is_zero_pubkey!(retnone => t_two);
+		};
+
+		let commit_vec;
+		let commit_ptr_vec;
+		let commit_ptr_vec_ptr = if commits.len() > 0 {
+			commit_vec = map_vec!(commits, |c| self.commit_parse(c.0).unwrap());
+			commit_ptr_vec = map_vec!(commit_vec, |c| c.as_ptr());
+			commit_ptr_vec.as_ptr()
+		} else {
+			ptr::null()
+		};
+
+		let _success = unsafe {
+			let scratch = ffi::secp256k1_scratch_space_create(self.ctx, SCRATCH_SPACE_SIZE);
+			let result = ffi::secp256k1_bulletproof_rangeproof_prove(
+				self.ctx,
+				scratch,
+				shared_generators(self.ctx),
+				proof.as_mut_ptr(),
+				&mut plen,
+				tau_x,
+				t_one,
+				t_two,
+				&value,
+				ptr::null(), // min_values: NULL for all-zeroes minimum values to prove ranges above
+				ptr::null(),
+				commit_ptr_vec_ptr,
+				1,
+				constants::GENERATOR_H.as_ptr(),
+				n_bits as size_t,
+				rewind_nonce.as_ptr(),
+				ptr::null(),
+				extra_data,
+				extra_data_len as size_t,
+				message_ptr,
+			);
+
+			//			ffi::secp256k1_bulletproof_generators_destroy(self.ctx, *gens);
+			ffi::secp256k1_scratch_space_destroy(scratch);
+
+			result == 1
+		};
+
+		RangeProof {
+			proof: proof,
+			plen: plen as usize,
+		}
+	}
+
 	/// Produces a bullet proof for multi-party commitment
 	pub fn bullet_proof_multisig(
 		&self,

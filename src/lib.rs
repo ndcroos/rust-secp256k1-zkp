@@ -26,6 +26,7 @@
 #![crate_name = "secp256k1zkp"]
 
 // Coding conventions
+#![deny(warnings, trivial_casts, trivial_numeric_casts)]
 #![deny(non_upper_case_globals)]
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
